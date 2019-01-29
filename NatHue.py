@@ -12,6 +12,16 @@ from apds9960 import APDS9960    #Import APDS code
 # pip3 install phue for the Phillips Hue system
 from phue import Bridge
 
+
+#Begin imports related to OLED display:
+import Adafruit_GPIO.SPI as SPI
+import Adafruit_SSD1306
+
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+#End imports related to OLED display.
+
 #try:
 #    import RPi.GPIO as GPIO      #Attempt to import GPIO
 #except RunTimeError:
@@ -29,7 +39,50 @@ sLogFileName = datetime.now().strftime('NatHueLog_%Y%m%d_%H%M%S.log')
 sLogFilePath = "/home/pi/NatHue/Logs/"
 print("Openning log file ", sLogFilePath + sLogFileName)
 fLogFile = open(sLogFilePath + sLogFileName,'w')
-printMessage("NatHue version 10.\n")
+printMessage("NatHue version 11.\n")
+
+#===============================================================
+#Begin other configuration related to OLED display
+# Raspberry Pi pin configuration:
+RST = None     # on the PiOLED this pin isnt used
+# Note the following are only used with SPI:
+DC = 23
+SPI_PORT = 0
+SPI_DEVICE = 0
+# 128x32 display with hardware I2C:
+disp = Adafruit_SSD1306.SSD1306_128_32(rst=RST)
+# Initialize library.
+disp.begin()
+
+# Clear display.
+disp.clear()
+disp.display()
+
+# Create blank image for drawing.
+# Make sure to create image with mode '1' for 1-bit color.
+width = disp.width
+height = disp.height
+image = Image.new('1', (width, height))
+
+# Get drawing object to draw on image.
+draw = ImageDraw.Draw(image)
+
+# Draw a black filled box to clear the image.
+draw.rectangle((0,0,width,height), outline=0, fill=0)
+
+# Draw some shapes.
+# First define some constants to allow easy resizing of shapes.
+padding = -2
+top = padding
+bottom = height-padding
+# Move left to right keeping track of the current x position for drawing shapes.
+x = 0
+
+
+# Load default font.
+font = ImageFont.load_default()
+#End other configuration related to OLED display
+#===============================================================
 
 # The IP address of the Hue bridge and a list of lights you want to use
 bridgeip = '192.168.1.203'  # <<<<<<<<<<<
@@ -311,6 +364,16 @@ try:
             #Print a data record for this run:
             printMessage(sDataRecord)
             
+            # Display image on OLED.
+            # Draw a black filled box to clear the image.
+            draw.rectangle((0,0,width,height), outline=0, fill=0)
+            draw.text((x, top),       "Running...",  font=font, fill=255)
+            draw.text((x, top+8),     "Red: " + format(valpctr,'.2f') + "%", font=font, fill=255)
+            draw.text((x, top+16),    "Grn: " + format(valpctg,'.2f') + "%",  font=font, fill=255)
+            draw.text((x, top+25),    "Blu: " + format(valpctb,'.2f') + "%",  font=font, fill=255)
+            disp.image(image)
+            disp.display()
+            
             #Reset out print flag:
             LightChange = -1
         
@@ -325,4 +388,9 @@ finally:
 #    GPIO.cleanup()
     printMessage("Exiting program.")
     fLogFile.close()
-    
+    draw.rectangle((0,0,width,height), outline=0, fill=0)
+    draw.text((x, top),       "Stopped.",  font=font, fill=255)
+    draw.text((x, top+8),     "Red: " + format(valpctr,'.2f') + "%", font=font, fill=255)
+    draw.text((x, top+16),    "Grn: " + format(valpctg,'.2f') + "%",  font=font, fill=255)
+    draw.text((x, top+25),    "Blu: " + format(valpctb,'.2f') + "%",  font=font, fill=255)
+    disp.image(image)
