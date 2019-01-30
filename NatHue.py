@@ -22,11 +22,17 @@ from PIL import ImageDraw
 from PIL import ImageFont
 #End imports related to OLED display.
 
-#try:
-#    import RPi.GPIO as GPIO      #Attempt to import GPIO
-#except RunTimeError:
-#    print("Error importing RPi.GPIO. Try using 'sudo' to run script.")
-    
+#Bring in GPIO in order to read the button presses:
+try:
+    import RPi.GPIO as GPIO      #Attempt to import GPIO
+except RunTimeError:
+    print("Error importing RPi.GPIO. Try using 'sudo' to run script.")
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(22, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(24, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+
 import smbus    #System Management Bus, a subset of the I2C protocol
 from time import sleep
 
@@ -39,7 +45,7 @@ sLogFileName = datetime.now().strftime('NatHueLog_%Y%m%d_%H%M%S.log')
 sLogFilePath = "/home/pi/NatHue/Logs/"
 print("Openning log file ", sLogFilePath + sLogFileName)
 fLogFile = open(sLogFilePath + sLogFileName,'w')
-printMessage("NatHue version 11.\n")
+printMessage("NatHue version 12.\n")
 
 #===============================================================
 #Begin other configuration related to OLED display
@@ -146,9 +152,43 @@ def GammaCorrection(fC):
     
     #Removing gamma correction for now:
     #return fC
-    
-try:
 
+#==========================================
+#Begin configuration for buttons:
+bUp = False
+bDown = False
+bSelect = False
+
+def ButtonUp(dummy):
+    global bUp
+    bUp = True
+    print("Up")
+
+def ButtonDown(dummy):
+    global bDown
+    bDown = True
+    print("Down")
+
+def ButtonSelect(dummy):
+    global bSelect
+    bSelect = True
+    print("Select")
+
+GPIO.add_event_detect(24, GPIO.RISING)
+GPIO.add_event_detect(23, GPIO.RISING)
+GPIO.add_event_detect(22, GPIO.RISING)
+
+GPIO.add_event_callback(24, ButtonUp)
+GPIO.add_event_callback(23, ButtonDown)
+GPIO.add_event_callback(22, ButtonSelect)
+
+#End configuration for buttons.
+#==========================================
+
+#Define a 3-position toggle variable to assist with color tuning:
+sColorTuneControl = "-"
+
+try:
     
     apds.enableLightSensor()
     
@@ -192,13 +232,54 @@ try:
     
     printMessage(sDataRecord)
     
+    #Create values to "tune" the light sensor
+    fTuneR = 1.0
+    fTuneG = 1.0
+    fTuneB = 1.0
+    
     while True:
         i = i + 1
+        
+        #Processing 'Select' button press:
+        if(bSelect):
+            if(sColorTuneControl == "-"):
+                sColorTuneControl = "R"
+            elif(sColorTuneControl == "R"):
+                sColorTuneControl ="G"
+            elif(sColorTuneControl == "G"):
+                sColorTuneControl = "B"
+            elif(sColorTuneControl == "B"):
+                sColorTuneControl = "-"
+            bSelect = False
+            print(sColorTuneControl + " selected.")
+        
+        if(bUp):
+            if(sColorTuneControl == "R"):
+                fTuneR = fTuneR + 0.01
+            elif(sColorTuneControl == "G"):
+                fTuneG = fTuneG + 0.01
+            elif(sColorTuneControl == "B"):
+                fTuneB = fTuneB + 0.01
+            bUp = False
+            print("Increasing")
+            LightChange = 1 #Set flag to process the light change.
+        
+        if(bDown):
+            if(sColorTuneControl == "R"):
+                fTuneR = fTuneR - 0.01
+            elif(sColorTuneControl == "G"):
+                fTuneG = fTuneG - 0.01
+            elif(sColorTuneControl == "B"):
+                fTuneB = fTuneB - 0.01
+            bDown = False
+            print("Decreasing")
+            LightChange = 1 #Set flag to process the light change.
+        
         #Read light values:
         vala = apds.readAmbientLight()
-        valr = apds.readRedLight()
-        valg = apds.readGreenLight()
-        valb = apds.readBlueLight()
+        valr = apds.readRedLight()   * fTuneR
+        valg = apds.readGreenLight() * fTuneG
+        valb = apds.readBlueLight()  * fTuneB
         
         
         
@@ -242,7 +323,8 @@ try:
             sDataRecord = datetime.now().strftime('%Y%m%d_%H%M%S') + "\t"
             #printMessage("Max % change (" + str(fMaxDelta) + ") greater than threshold ("
             #    + str(fDeltaTrigger) + "). Flag set to apply light change.")
-            sDataRecord = sDataRecord + format(fMaxDelta, '5.2f') + "\t"
+            sDataRecord = sDataRecord + format(fMaxDelta, '+5.2f') + "\t"
+            
             
         #If any light values have changed, perform calcs and display results:
         if LightChange == 1:
@@ -367,12 +449,24 @@ try:
             # Display image on OLED.
             # Draw a black filled box to clear the image.
             draw.rectangle((0,0,width,height), outline=0, fill=0)
+            
             draw.text((x, top),       "Running...",  font=font, fill=255)
-            draw.text((x, top+8),     "Red: " + format(valpctr,'.2f') + "%", font=font, fill=255)
-            draw.text((x, top+16),    "Grn: " + format(valpctg,'.2f') + "%",  font=font, fill=255)
-            draw.text((x, top+25),    "Blu: " + format(valpctb,'.2f') + "%",  font=font, fill=255)
+            
+            if(sColorTuneControl == "-"):
+                draw.text((x, top+8),     "Red: " + format(valpctr,'.2f') + "% " + format(fTuneR-1,'+.2f'), font=font, fill=255)
+                draw.text((x, top+16),    "Grn: " + format(valpctg,'.2f') + "% " + format(fTuneG-1,'+.2f') ,  font=font, fill=255)
+                draw.text((x, top+25),    "Blu: " + format(valpctb,'.2f') + "% " + format(fTuneB-1,'+.2f') ,  font=font, fill=255)
+            elif(sColorTuneControl == "R"):
+                draw.text((x, top+8),     "Red tuning: " + format(fTuneR,'.2f') + "%", font=font, fill=255)
+            elif(sColorTuneControl == "G"):
+                draw.text((x, top+8),     "Grn tuning: " + format(fTuneG,'.2f') + "%", font=font, fill=255)
+            elif(sColorTuneControl == "B"):
+                draw.text((x, top+8),     "Blu tuning: " + format(fTuneB,'.2f') + "%", font=font, fill=255)
             disp.image(image)
             disp.display()
+            
+            
+            
             
             #Reset out print flag:
             LightChange = -1
@@ -385,12 +479,10 @@ except Exception as e:
 except KeyboardInterrupt: #Ctrl-C causes KeyboardInterrupt to be raised.
     pass  #Do nothing. A statement is required here, syntactically.
 finally:
-#    GPIO.cleanup()
+    GPIO.cleanup()
     printMessage("Exiting program.")
     fLogFile.close()
-    draw.rectangle((0,0,width,height), outline=0, fill=0)
-    draw.text((x, top),       "Stopped.",  font=font, fill=255)
-    draw.text((x, top+8),     "Red: " + format(valpctr,'.2f') + "%", font=font, fill=255)
-    draw.text((x, top+16),    "Grn: " + format(valpctg,'.2f') + "%",  font=font, fill=255)
-    draw.text((x, top+25),    "Blu: " + format(valpctb,'.2f') + "%",  font=font, fill=255)
-    disp.image(image)
+    
+    
+    
+    
