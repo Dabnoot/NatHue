@@ -2,7 +2,7 @@
 #Digital ambient light sense (ALS), and
 #Color sense (RGBC)
 
-import urllib.request
+import urllib.request 
 
 from datetime import datetime
 
