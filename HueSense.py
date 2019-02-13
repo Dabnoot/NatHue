@@ -12,6 +12,8 @@ from apds9960 import APDS9960    #Import APDS code
 import smbus    #System Management Bus, a subset of the I2C protocol
 from time import sleep
 
+import math
+
 #Import tkinter to support the drawing of a screen
 # to display RGB samples:
 from tkinter import *
@@ -71,16 +73,9 @@ try:
     
     apds.enableLightSensor()
     
-    #Declare variables:
-    ovala = 1         #Old value ambient light
-    ovalr = 1         #Old value red light
-    ovalg = 1         #Old value green light
-    ovalb = 1         #Old value blue light
     
     printMessage("Initialization complete.")
     printMessage("=============================")
-    
-    i = 0
     
     sDataRecord = "YYYYMMDD_HHMMSS\t"
     sDataRecord = sDataRecord + "ARaw\t"
@@ -90,6 +85,12 @@ try:
     sDataRecord = sDataRecord + "RSpl\t"
     sDataRecord = sDataRecord + "GSpl\t"
     sDataRecord = sDataRecord + "BSpl\t"
+    sDataRecord = sDataRecord + "RCal\t"
+    sDataRecord = sDataRecord + "GCal\t"
+    sDataRecord = sDataRecord + "BCal\t"
+    sDataRecord = sDataRecord + "RErr\t"
+    sDataRecord = sDataRecord + "GErr\t"
+    sDataRecord = sDataRecord + "BErr\t"
     
     printMessage(sDataRecord)
     
@@ -114,6 +115,26 @@ try:
         valg = apds.readGreenLight()
         valb = apds.readBlueLight()
         
+        #Use equations to check data:
+        #Prevent illegal value for natural log:
+        valr = max(1,valr)
+        valg = max(1,valg)
+        valb = max(1,valb)
+        #Apply experimentally-derived constants
+        f1R = 186.66 * math.log(valr) - 691.33
+        f1G = 173.74 * math.log(valg) - 669.32
+        f1B = 399.15 * math.log(valb) - 1804.4
+        f1R = min(f1R, 255)
+        f1G = min(f1G, 255)
+        f1B = min(f1B, 255)
+        
+        #Prevent DBZ:
+        iR = max(1, iR)
+        iG = max(1, iG)
+        iB = max(1, iB)
+        RError = abs(1 - (f1R / iR))
+        GError = abs(1 - (f1G / iG))
+        BError = abs(1 - (f1B / iB))
         
         sDataRecord = datetime.now().strftime('%Y%m%d_%H%M%S') + "\t"
             
@@ -125,17 +146,12 @@ try:
         sDataRecord = sDataRecord + str(iR) + "\t"
         sDataRecord = sDataRecord + str(iG) + "\t"
         sDataRecord = sDataRecord + str(iB) + "\t"
-        
-        iTot = max(valr + valg + valb,1)
-        fPctR = valr / iTot
-        fPctG = valg / iTot
-        fPctB = valb / iTot
-        
-        #Record the new light values as old light values:
-        ovala = vala
-        ovalr = valr
-        ovalg = valg
-        ovalb = valb
+        sDataRecord = sDataRecord + format(f1R,'.2f') + "\t"
+        sDataRecord = sDataRecord + format(f1G,'.2f') + "\t"
+        sDataRecord = sDataRecord + format(f1B,'.2f') + "\t"
+        sDataRecord = sDataRecord + format(RError,'.2f') + "\t"
+        sDataRecord = sDataRecord + format(GError,'.2f') + "\t"
+        sDataRecord = sDataRecord + format(BError,'.2f')
         
         #Print a data record for this run:
         printMessage(sDataRecord)
