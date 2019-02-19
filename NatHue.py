@@ -22,6 +22,9 @@ from PIL import ImageDraw
 from PIL import ImageFont
 #End imports related to OLED display.
 
+#Import math for math.log used in RGB calcs:
+import math
+
 #Bring in GPIO in order to read the button presses:
 try:
     import RPi.GPIO as GPIO      #Attempt to import GPIO
@@ -215,13 +218,12 @@ try:
     valpctb = 0.1
     LightChange = -1   #A flag for if we have new data to print to the screen
     
-    fDeltaTrigger = 2.00
+    fDeltaTrigger = .25
     printMessage("Light set to change on illumination change of " + str(fDeltaTrigger) + "%.")
     
     printMessage("Initialization complete.")
     printMessage("=============================")
     
-    sleep(1)
     i = 0
     
     sDataRecord = "YYYYMMDD_HHMMSS\t"
@@ -240,7 +242,7 @@ try:
     #sDataRecord = sDataRecord + "R%\t"
     #sDataRecord = sDataRecord + "G%\t"
     #sDataRecord = sDataRecord + "B%\t"
-    sDataRecord = sDataRecord + "Bri\t"
+    #$sDataRecord = sDataRecord + "Bri\t"
     sDataRecord = sDataRecord + "R  \t"
     sDataRecord = sDataRecord + "G  \t"
     sDataRecord = sDataRecord + "B  \t"
@@ -260,57 +262,16 @@ try:
         
         #Processing 'Select' button press:
         if(bSelect):
-            if(sScreenPage == "-"):
-                sScreenPage = "R"
-            elif(sScreenPage == "R"):
-                sScreenPage ="G"
-            elif(sScreenPage == "G"):
-                sScreenPage = "B"
-            elif(sScreenPage == "B"):
-                sScreenPage = "RCSL_Pow"
-            elif(sScreenPage == "RCSL_Pow"):
-                sScreenPage = "RCSL_Const"
-            elif(sScreenPage == "RCSL_Const"):
-                sScreenPage = "-"
-            bSelect = False
-            print(sScreenPage + " selected.")
             LightChange = 1
+            bSelect = False
         
         if(bUp):
-            if(sScreenPage == "R"):
-                fTuneR = fTuneR + 0.01
-            elif(sScreenPage == "G"):
-                fTuneG = fTuneG + 0.01
-            elif(sScreenPage == "B"):
-                fTuneB = fTuneB + 0.01
-            elif(sScreenPage == "RCSL_Pow"):
-                RCSL_Pow = RCSL_Pow + 0.01
-                if(RCSL_Pow >= 1.0):
-                    RCSL_Pow = 1.0
-            elif(sScreenPage == "RCSL_Const"):
-                RCSL_Const = RCSL_Const + 0.001
-            bUp = False
-            print("Increasing")
             LightChange = 1 #Set flag to process the light change.
+            bUp = False
         
         if(bDown):
-            if(sScreenPage == "R"):
-                fTuneR = fTuneR - 0.01
-            elif(sScreenPage == "G"):
-                fTuneG = fTuneG - 0.01
-            elif(sScreenPage == "B"):
-                fTuneB = fTuneB - 0.01
-            elif(sScreenPage == "RCSL_Pow"):
-                RCSL_Pow = RCSL_Pow - 0.01
-                if(RCSL_Pow <= 0.0):
-                    RCSL_Pow = 0.0
-            elif(sScreenPage == "RCSL_Const"):
-                RCSL_Const = RCSL_Const - 0.001
-                if(RCSL_Const <= 0.0):  #DBZ protection
-                    RCSL_Const = 0.001
-            bDown = False
-            print("Decreasing")
             LightChange = 1 #Set flag to process the light change.
+            bDown = False
         
         #Read light values:
         vala = apds.readAmbientLight()
@@ -362,12 +323,6 @@ try:
         #If any light values have changed, perform calcs and display results:
         if LightChange == 1:
             
-            #Add "%change" to data record
-            #sDataRecord = sDataRecord + format(fDeltaA,'5.2f') + "\t"
-            #sDataRecord = sDataRecord + format(fDeltaR,'5.2f') + "\t"
-            #sDataRecord = sDataRecord + format(fDeltaG,'5.2f') + "\t"
-            #sDataRecord = sDataRecord + format(fDeltaB,'5.2f') + "\t"
-            
             #Add "raw light values" to data record
             
             sDataRecord = sDataRecord + format(vala,'4d') + "\t"
@@ -375,53 +330,64 @@ try:
             sDataRecord = sDataRecord + format(valg,'4d') + "\t"
             sDataRecord = sDataRecord + format(valb,'4d') + "\t"
             
-            #Calculate linearized color values
-            #The APDS9960 appears to exaggerate colors in very bright illumination.
-            RCSLvalr = int(RawColorSenseLinearize(valr))
-            RCSLvalg = int(RawColorSenseLinearize(valg))
-            RCSLvalb = int(RawColorSenseLinearize(valb))
-            #sDataRecord = sDataRecord + str(RCSLvalr) + "\t"
-            #sDataRecord = sDataRecord + str(RCSLvalg) + "\t"
-            #sDataRecord = sDataRecord + str(RCSLvalb) + "\t"
-            
-            #valr = RCSLvalr
-            #valg = RCSLvalg
-            #valb = RCSLvalb
-            
-            
-            #Calculate RGB percentages:
-            RGBTotal = valr + valg + valb
-            RGBTotal = (valr + valg + valb)/3
-            if(RGBTotal == 0):
-                nRGBTotal = 1
+            if(((valr < 60 ) or (valg < 50) or (valb < 110)) or (vala > 500)):
+                #If the detected values are so low as to have high error,
+                #  or if the detected values are so high as to be out of
+                #  formula range, use a simple percent method to calculate RGB.
+                #Calculate RGB values:
+                RGBTotal = valr + valg + valb
+                RGBTotal = (valr + valg + valb)/3
+                if(RGBTotal == 0):
+                    nRGBTotal = 1
+                else:
+                    nRGBTotal = RGBTotal
+                
+                f0R = max(1.0,valr)
+                f0G = max(1.0,valg)
+                f0B = max(1.0,valb)
+                
+                
+                valpctr = min(f0R / nRGBTotal,1.0) * 100
+                valpctg = min(f0G / nRGBTotal,1.0) * 100
+                valpctb = min(f0B / nRGBTotal,1.0) * 100
+                
+                f1R = (valpctr / 100) * 255
+                f1G = (valpctg / 100) * 255
+                f1B = (valpctb / 100) * 255
+                print(f1R, f1G, f1B)
+                #Add "RGB percentages" to data record
+                #sDataRecord = sDataRecord + format(valpctr,'.2f') + "\t"
+                #sDataRecord = sDataRecord + format(valpctg,'.2f') + "\t"
+                #sDataRecord = sDataRecord + format(valpctb,'.2f') + "\t"
             else:
-                nRGBTotal = RGBTotal
-            valpctr = min(valr / nRGBTotal,1.0) * 100
-            valpctg = min(valg / nRGBTotal,1.0) * 100
-            valpctb = min(valb / nRGBTotal,1.0) * 100
+                #The constants used in the calculations below were obtained
+                #  experimentally through data analysis. Data was provided
+                #  via the HueSense Python script.
+                #Prevent illegal values for natural log:
+                valr = max(1,valr)
+                valg = max(1,valg)
+                valb = max(1,valb)
+                f1R = 186.66 * math.log(valr) - 691.33
+                f1G = 173.74 * math.log(valg) - 669.32
+                f1B = 399.15 * math.log(valb) - 1804.4
+                f1R = min(f1R, 255)
+                f1G = min(f1G, 255)
+                f1B = min(f1B, 255)
             
-            #Add "RGB percentages" to data record
-            #sDataRecord = sDataRecord + format(valpctr,'.2f') + "\t"
-            #sDataRecord = sDataRecord + format(valpctg,'.2f') + "\t"
-            #sDataRecord = sDataRecord + format(valpctb,'.2f') + "\t"
             
-            #Calculate a brightness:
-            #printMessage("Brightness calculation:")
-            #printMessage("-----------------------")
+            
+            #Calculate a brightness to send to the Hue:
             iFullBrightness = 230
             #Full brightness value is arbitrary.
-            #Normal room ~ 230. Bright flashlight is 20,000.
+            #Normal room ~ 230. Cellphone flashlight is 20,000.
             iBri = int((vala / iFullBrightness) * 255)
-            if(iBri > 255):
-                iBri = 255
+            iBri = min(iBri, 255)
             #Add "brightness sent to Philips Hue" to data record
-            sDataRecord = sDataRecord + str(iBri) + "\t"
+            #sDataRecord = sDataRecord + str(iBri) + "\t"
             
             #======= BEGIN SETTING LIGHT VALUES =======
             
-            f1R = (valpctr / 100) * 255
-            f1G = (valpctg / 100) * 255
-            f1B = (valpctb / 100) * 255
+            
             
             #Add "RGB used in color calculations"  to data record
             sDataRecord = sDataRecord + format(f1R,'.2f') + "\t"
@@ -429,7 +395,7 @@ try:
             sDataRecord = sDataRecord + format(f1B,'.2f') + "\t"
             
             #Apply gamma correction to make color more vivid:
-            if(True):
+            if(False):
                 f1Rgc = GammaCorrection(f1R)
                 f1Ggc = GammaCorrection(f1G)
                 f1Bgc = GammaCorrection(f1B)
@@ -467,6 +433,10 @@ try:
                            [ 0.1746583,  0.8247541,  0.0005877],
                            [-0.0012563,  0.0169832,  0.8094831]]
             
+            
+            #CIE_RGB_D50 appears to be accurate when ambient light is below 500.
+            XYZ = CIE_RGB_D50
+            #sRGB_D50 is closer when sensing light above 500.
             XYZ = CIE_RGB_D50
             
             a=XYZ[0][0]
@@ -516,28 +486,12 @@ try:
             # Display image on OLED.
             # Draw a black filled box to clear the image.
             draw.rectangle((0,0,width,height), outline=0, fill=0)
-            
             draw.text((x, top),       "Running...",  font=font, fill=255)
-            
-            if(sScreenPage == "-"):
-                draw.text((x, top+8),     "Red: " + format(f1R,'.2f') + format(fTuneR-1,'+.2f'), font=font, fill=255)
-                draw.text((x, top+16),    "Grn: " + format(f1G,'.2f') + format(fTuneG-1,'+.2f') ,  font=font, fill=255)
-                draw.text((x, top+25),    "Blu: " + format(f1B,'.2f') + format(fTuneB-1,'+.2f') ,  font=font, fill=255)
-            elif(sScreenPage == "R"):
-                draw.text((x, top+8),     "Red tuning: " + format(fTuneR,'.2f') + "%", font=font, fill=255)
-            elif(sScreenPage == "G"):
-                draw.text((x, top+8),     "Grn tuning: " + format(fTuneG,'.2f') + "%", font=font, fill=255)
-            elif(sScreenPage == "B"):
-                draw.text((x, top+8),     "Blu tuning: " + format(fTuneB,'.2f') + "%", font=font, fill=255)
-            elif(sScreenPage == "RCSL_Pow"):
-                draw.text((x, top+8),     "RCSL_Pow: " + format(RCSL_Pow,'.2f') + "%", font=font, fill=255)
-            elif(sScreenPage == "RCSL_Const"):
-                draw.text((x, top+8),     "RCSL_Const: " + format(RCSL_Const,'.3f') + "%", font=font, fill=255)
+            draw.text((x, top+8),     "Red: " + str(valr), font=font, fill=255)
+            draw.text((x, top+16),    "Grn: " + str(valg),  font=font, fill=255)
+            draw.text((x, top+25),    "Blu: " + str(valb),  font=font, fill=255)
             disp.image(image)
             disp.display()
-            
-            
-            
             
             #Reset out print flag:
             LightChange = -1

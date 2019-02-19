@@ -62,13 +62,7 @@ try:
     w = Canvas(tk, width=500, height=500)
     w.pack()
 
-    #Initialize RGB color samples for tkinter display:
-    iSample = 0
-    iR = 255
-    iG = 255
-    iB = 255
-    #Set RGB sample color shift interval:
-    ia = 10
+    
     
     
     apds.enableLightSensor()
@@ -94,11 +88,18 @@ try:
     
     printMessage(sDataRecord)
     
+    #Initialize RGB color samples for tkinter display:
+    iSample = 0
+    #Set RGB sample color shift interval:
+    ia = 10
+    
     while True:
         
         #Set the color sample on the tkinter window.
         #Change assignment of iSample to change the
         #  color being tested.
+        iR = 255
+        iG = 255
         iB = iSample
         tk_rgb = "#%02x%02x%02x" % (iR, iG, iB)
         w.create_rectangle(0, 0, 500, 500, fill=tk_rgb)
@@ -109,24 +110,46 @@ try:
         #  for the tk window to complete the update of its color.
         sleep(.5)
         
+        vala = 1
+        valr = 1
+        valg = 1
+        valb = 1
+        
         #Read light values:
         vala = apds.readAmbientLight()
         valr = apds.readRedLight()
         valg = apds.readGreenLight()
         valb = apds.readBlueLight()
         
-        #Use equations to check data:
-        #Prevent illegal value for natural log:
-        valr = max(1,valr)
-        valg = max(1,valg)
-        valb = max(1,valb)
-        #Apply experimentally-derived constants
-        f1R = 186.66 * math.log(valr) - 691.33
-        f1G = 173.74 * math.log(valg) - 669.32
-        f1B = 399.15 * math.log(valb) - 1804.4
-        f1R = min(f1R, 255)
-        f1G = min(f1G, 255)
-        f1B = min(f1B, 255)
+        #Select the raw-to-RGB conversion formula:
+        bLowRange = vala < 500
+        if(bLowRange):
+            #Use equations to check data:
+            #Prevent illegal value for natural log:
+            valr = max(1,valr)
+            valg = max(1,valg)
+            valb = max(1,valb)
+            #Apply experimentally-derived constants
+            f1R = 186.66 * math.log(valr) - 691.33
+            f1G = 173.74 * math.log(valg) - 669.32
+            f1B = 399.15 * math.log(valb) - 1804.4
+            f1R = min(f1R, 255)
+            f1G = min(f1G, 255)
+            f1B = min(f1B, 255)
+        else:
+            #Find the color value with the greatest magnitude:
+            valHigh = valr
+            if(valg > valHigh):
+                valHigh = valg
+            if(valb > valHigh):
+                valHigh = valb
+            #Normalize color values about the color with the highest magnitude:
+            f1R = valr / valHigh
+            f1G = valg / valHigh
+            f1B = valb / valHigh
+            f1R *= 255
+            f1G *= 255
+            f1B *= 255
         
         #Prevent DBZ:
         iR = max(1, iR)
